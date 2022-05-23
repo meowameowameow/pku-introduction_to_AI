@@ -1,0 +1,188 @@
+\documentclass{ctexart}
+\usepackage{amsmath}
+\usepackage{algorithm}
+\usepackage{geometry}
+\usepackage{graphicx}
+
+\graphicspath{{im/} }
+\title{\textbf{人工智能引论实验报告}}
+\author{田宇轩 2100013126}
+\date{}
+\begin{document}
+\maketitle
+\CTEXsetup[format={\Large\bfseries}]{section}
+\part*{实验一$\quad$语音性别分类}
+\tableofcontents
+\section{实验目的}
+本实验任务是根据语音的声学特征，采用机器学习的方法，对语音来源的性别进行分类。
+实验数据集是基于3168个录制自男性/女性说话者的语音样本，使用R的seewave和tuneR包进行声学分析的预处理（分析频率范围为$0hz-280hz$，即人发声频率范围）得到的具有20维特征的数据，第21维以label(male/female)标识性别。 作为有监督学习中典型的二分类问题，实验将按照$\quad$对特征数据的分析与处理、机器学习中几种分类模型的使用与比较、模型的改进$\quad$的研究步骤进行。
+
+\section{数据的分析与处理}
+\subsection{特征分析}
+\subsubsection{特征数据的分布分析}
+加载数据集，得到数据集规模：[3168rowsX21columns]，对前20列特征及其数值进行统计，见表1：
+\begin{center}
+\centering
+\resizebox{\textwidth}{10mm}{
+\begin{tabular}{||c|c c c c c c c c c c||}
+\hline
+\textbf{feature} & meanfreq & sd     & median & Q25    & Q75    & IQR    &  skew & kurt & sp.ent & modindx \\ \hline
+\textbf{min}     & 0.0394   & 0.0184 & 0.0110 & 0.0002 & 0.0429 & 0.0146 & 0.1417 & 2.0685 & 0.7386 & 0.0 \\ \hline
+\textbf{max}     & 0.2511   & 0.1153 & 0.2612 & 0.2473 & 0.2734 & 0.2522 & 34.726 & 1309.61 & 0.9820 & 0.9323 \\ \hline
+\textbf{mean}     & 0.1809   & 0.0571 & 0.1856  & 0.1404  & 0.2247 & 0.0843  & 3.1402 & 36.568 & 0.8951 & 0.1738 \\ \hline
+\end{tabular}}
+\caption{\small{表1：各特征的最大值、最小值、平均值}}
+\end{center}
+
+\begin{center}
+\resizebox{\textwidth}{10mm}{
+\begin{tabular}{||c c c c c c c c c c||}
+\hline
+ sfm    & mode     & centroid  & meanfun  & minfun &  maxfun & meandom &  mindom & maxdom & dfrange  \\ \hline
+  0.0369   & 0.0 & 0.0393 & 0.0556 & 0.0098 & 0.1031 & 0.0078 & 0.0049 & 0.0078 & 0.0 \\ \hline
+  0.8429   & 0.28 & 0.2511 & 0.2376 & 0.2041 & 0.2791 & 2.9577 & 0.4590 & 21.843 & 21.844 \\ \hline
+ 0.4082  & 0.1653 & 0.1809  & 0.1428 & 0.0368  & 0.2588 & 0.8292 & 0.0526 & 5.047  & 0.1737  \\ \hline
+\end{tabular}}
+\caption{\small{表1（续）}}
+\end{center}
+
+从表1可以看出，不同特征的数值范围不同。
+大多数在0-0.25之间；特征mode（模态频率），maxdom（主频最大值），drange（主频范围）等取值处于0-10之间；而kurt（峰度）的取值最为极端，最大值超过1300。值得注意的是，kurt的最大值约为1309.61，而平均值仅为36.568，最小值为2.068，怀疑存在小部分数据的干扰。进一步，用pandas的nlargest函数求出数据中kurt从大到小的前150个值，发现其数值迅速地从1309.61跌落到85.6176，这为后续对初始数据进行预处理提供了思路。就均值而言，17个feature的均值处于0-1.0之间，此外还有3.1402，36.568，5.047，均值的分布也是不均一的。
+
+因此，为提高效率和模型的表现，防止个别特征影响过大、极端数据等的干扰，从而保证准确率，对数据进行归一化和标准化是有必要的，尤其是参数化模型如支持向量机、神经网络等。
+\subsubsection{特征间的关系分析}
+对于特征之间的关系进行分析，发现有
+
+\textbf{IQR}（分位数范围）=\textbf{Q75}（第一分位数）-\textbf{Q25}（第三分位数）
+
+\textbf{dfrange}（主频范围）=\textbf{maxdom}（主频最大值）-\textbf{mindom}（主频最小值）
+
+等式恒成立，表明这两组特征之间具有绝对的线性关系。同时，声学分析得到的20维feature之间是相互联系和影响的，这都使得特征的独立性假设难以成立，从而让朴素贝叶斯等算法的表现受到影响。
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=4in]{2}
+    \caption{用seaborn包绘制特征IQR、meanfun、meandom的关系图}
+\end{figure}
+
+\subsubsection{特征与类别的相关性分析}
+按label（性别）将数据划分为两个集合，对20个特征，分别绘制出其数值随性别的分布，以直观显示各特征与性别的相关性，如图2：
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=7in]{1}
+    \caption{不同性别的feature数值分布}
+\end{figure}
+图像表明，在所有feature中sd（频率的标准偏差）、Q25、IQR、sp.ent（谱熵）、sfm（频谱平坦度）、mode、meanfun（基频均值）随性别的区分，表现出显著差异，而skew（偏态系数）、minfun（最小基频）、meandom（主频均值）、modinx的差异不明显。
+
+当基于特征对语音进行分类时，可着重强调/淡化上述特征，挑选一些"好"的特征来训练模型，来减小模型训练时间，也能够提升模型性能。
+
+\subsection{特征处理}
+
+结合\textbf{2.1$\quad$特征分析}的结论，标准归一化能够提高准确率。首先就输入数据进行标准化、归一化对准确率的影响进行实验，得到如表2、表3所示结果：
+\begin{center}
+\centering
+\resizebox{\textwidth}{10mm}{
+\begin{tabular}{c|ccccc}
+\hline
+\textbf{Model} & \textbf{Decision Tree} & \textbf{Random Forest} & \textbf{Gradient Boosting} & \textbf{Support Vector Machine} & \textbf{Multilayer Perception} \\ \hline
+\textbf{Accuracy on training set} & 1.000  & 0.998  & 0.996 & 0.678 & 0.950 \\ \hline
+\textbf{Accuracy on test set}     & 0.961  & 0.976 & 0.975 & 0.680 & 0.951  \\ \hline
+\end{tabular}}
+\caption{\small{表2：未进行标准归一化的各模型准确率}}
+\end{center}
+\begin{center}
+\centering
+\resizebox{\textwidth}{10mm}{
+\begin{tabular}{c|ccccc}
+\hline
+\textbf{Model} & \textbf{Decision Tree} & \textbf{Random Forest} & \textbf{Gradient Boosting} & \textbf{Support Vector Machine} & \textbf{Multilayer Perception} \\ \hline
+\textbf{Accuracy on training set} & 1.000  & 0.998  & 0.996 & 0.985 & 0.996 \\ \hline
+\textbf{Accuracy on test set}     & 0.961  & 0.976 & 0.975 & 0.984 & 0.983  \\ \hline
+\end{tabular}}
+\caption{\small{表3：标准归一化后各模型准确率}}
+\end{center}
+可以看出，使用标准归一化后，模型的准确率有所提升。在决策树以及基于决策树的集成模型，如随机森林、梯度提升树模型上，提升并不明显；在支持向量机、多层感知机模型上，准确率有明显提升，尤其是SVM。这是因为前者是概率模型（树型模型），不关心特征的值，而关心特征的值和特征之间产生的条件概率；后者是数值化的模型，它们的最优化问题需要标准归一化，类似的，还有K最邻近、逻辑回归、K均值聚类等算法。
+
+\section{分类模型}
+\subsection{Decision Tree}
+\subsubsection{模型介绍}
+与线性模型不同，树型模型是按照一个个特征进行处理，通过根据样本特征在每个节点上的决策，一步步确定其所属类别。树内部的每个节点可看作对一个特征的测试，测试结果产生不同的分支，最终，每个叶节点代表一个类别。树型模型更接近于人的逻辑思维方式，产生的模型（决策树）易于人类理解和解释，并能产生可视化的决策规则，如图3：
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=5in]{3}
+    \caption{本次实验生成的决策树}
+\end{figure}
+\subsubsection{模型评价与改进}
+决策树具有不依赖于数据的标准归一化、不错的鲁棒性等优点。但存在缺点：可能陷入局部最优、模型复杂时容易过拟合、对于异或这样的非线性问题不易处理……
+
+为防止过拟合、提高效率，需要进行剪枝Pruning，包括预剪枝与后剪枝；还可以做正则化Regularization改进：对决策树设置约束，限制模型参数，如控制树的最大深度depth，限制叶节点数量上限，增加分裂一个节点所需的最小样本数/样本数下限，增加分裂节点时依据的最少特征数量……
+
+进一步，在决策树的基础上，许多集成学习技术被开发出来，如：袋法集成学习、随机森林、梯度提升树，对决策树算法进行改进。这是我们下面将要讨论的——
+\subsection{Random Forests}
+随机森林建立在决策树的基础上，通过随机选取特征数据，建立多棵树来提高分类的表现performance，从而防止陷入局部极值问题。
+随机极度随机树的每棵决策树都是由原始训练样本构建的。在每个测试节点上，每棵树都有一个随机样本，样本中有k个特征，每个决策树都必须从这些特征集中选择最佳特征，然后根据一些数学指标(一般是基尼指数)来拆分数据。这种随机的特征样本导致多个不相关的决策树的产生
+\subsubsection{Extra Trees}
+类似，有极度随机树学习ExtraTreesClassifier：它将在决策树森林Forest中收集的多个去相关决策树的结果聚集起来，输出分类结果。极度随机树比常规随机森林更具随机性（Randomness），因为极度随机树在每个节点分裂或分枝时，随机选择特征子集，并且随即分裂来获取最优的分枝属性和分枝阈值，总体上效果好于随机森林，见表4：
+
+\begin{center}
+\resizebox{\textwidth}{10mm}{
+\begin{tabular}{|c|cc|cc|cc|cc|}
+\hline
+\textbf{\begin{tabular}[c]{@{}c@{}}n\_estimators\\ Accuracy on training/test set\end{tabular}} & \multicolumn{2}{c|}{\textbf{n=5}}  & \multicolumn{2}{c|}{\textbf{n=10}} & \multicolumn{2}{c|}{\textbf{n=15}} & \multicolumn{2}{c|}{\textbf{n=20}} \\ \hline
+\textbf{Random Forests}                                                                        & \multicolumn{1}{c|}{0.998} & 0.976 & \multicolumn{1}{c|}{1.000} & 0.979 & \multicolumn{1}{c|}{1.000} & 0.978 & \multicolumn{1}{c|}{1.000} & 0.976 \\ \hline
+\textbf{Extra Trees}                                                                            & \multicolumn{1}{c|}{1.000} & 0.972 & \multicolumn{1}{c|}{1.000} & 0.979 & \multicolumn{1}{c|}{1.000} & 0.983 & \multicolumn{1}{c|}{1.000} & 0.984 \\ \hline
+\end{tabular}}
+\caption{\small{表4:随机森林与极度随机树模型在不同迭代次数下的准确率}}
+\end{center}
+
+\subsection{Gradient Boosting}
+梯度提升，旨在训练模型的过程中，每次迭代都去增加预测结果和真实值相差较大的元素的权重，减小预测结果和真实值相差较小的元素的权重，从而获得更优的预测模型。
+
+\subsection{Support Vector Machine}
+\subsubsection{模型介绍}
+支持向量机解决分类问题可以形象化理解成：按照样本的特征数值将其映射成特征空间中的点集，支持向量机就是在特征空间中寻找满足约束条件的最优分类超平面，将点集一分为二（针对二分类问题）并使到两类的边距最大化。
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=4in]{4}
+    \caption{二维特征空间中支持向量机所得超平面与支持向量展示}
+\end{figure}
+
+\subsubsection{模型评价与改进}
+支持向量机存在一些问题和局限，比如容易被异常值影响，只对线性可分样本有效等。
+为处理异常值和非线性数据，可以设置软边界，以容纳小部分异常数据；为正确处理非线性数据，使用核函数kernel，将非线性可分数据点的特征从相对较低的维度映射到相对较高的维度，便于分类处理，有多项式核，高斯核等
+
+\subsection{Multilayer Perception}
+人工神经网络，以多层感知机为例，通过建立多层神经元的连接模拟脑神经模式。在传统的输入层InputLayer和输出层OutputLayer之间加入隐藏层hidden layer。并引入激活函数（非线性函数），实现非线性变换。
+
+\section{实验结果分析}
+在完成针对学习样本的模型训练后，绘制各个模型中的不同feature的重要性图进行比较，如图5：
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=\textwidth]{ss}
+    \caption{四种树型模型中feature的重要性展示}
+\end{figure}
+
+从图中可以发现，meanfun是这四种模型对性别做分类的最主要依据的特征；IQR、Q25、sd其次，对分类结果有相当的影响；其他特征的重要性较弱，这与我们在\textbf{2.1.3$\quad$ 特征与类别的相关性分析}中的结论很好地符合。同时，在四种模型中的，决策树、梯度提升模型中meanfun单个特征重要性最为突出，分类较依赖单个feature；随机森林、极度随机树对于其他各特征都有所考量。
+
+对于训练出的多层感知机模型，绘制出首层各特征权重矩阵，meanfun仍是主要影响因素，整体与上述特征重要性分析相符，如图6：
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.75\textwidth]{pp}
+    \caption{the heatmap on first layer weights for neural network}
+\end{figure}
+\section{讨论、总结与思考}
+从结果可以看出，meanfun（基频均值）是与分类结果相关性最为显著的特征，其次有IQR（分位数范围）、Q25（第一分位数）、sd（频率的标准偏差）、sp.ent（谱熵）、sfm（频谱平坦度）；与之相对的，skew（偏态系数）、minfun（最小基频）、meandom（主频均值）、modinx（调制指数）、kurt（峰度）对分类影响甚微。我们在实验前的特征数据初步分析（图2），以及试验后绘制的重要性importance图（图5、图6），两相印证、共同说明这一点。这也反映实验前的分析是正确且有意义的。
+
+实验也表明，对实验数据的预处理，比如标准化、归一化是相当重要的，能够提高学习效率和准确率，而数值型模型对均值归一化尤其敏感（表2、表3）。以上思考，对我们以后更好地完成机器学习任务有指导和借鉴意义。
+
+关于实验模型：就模型分类的过程与依据而言，实验主要采用了树型模型（决策树、随机森林、梯度提升树）和数值模型（支持向量机、多层神经网络）两类机器学习模型；就模型发展而言，神经网络相比传统模型，表现出独有的优越性，而传统机器学习模型在处理此学习样本时也有优良的表现，模型选择与改进措施对准确率的影响是明显的。
+
+关于模型的改进：从分析模型优缺点出发，提出解决方法，进而衍化出新的模型。在异常数值处理、正则化解决过拟合、随机化防止局部极值、预处理不适应的样本、调整参数以更好拟合数据……多方面积累了经验，有助于将来机器学习研究。
+
+关于实验的改进和继续深入：首先，使用到的模型参数大多采用默认参数设置，对于如何调整参数以达到最佳效果可以继续深入实验；其次，筛选部分“好”的特征进行训练的想法没有实施；再者，模型的改进与优化没有进行充分实验，可以更加详细地进行对比与模型升级。
+
+\part*{参考文献}
+[1]$\quad$https://www.kaggle.com/datasets/primaryobjects/voicegender 
+
+\end{document}
