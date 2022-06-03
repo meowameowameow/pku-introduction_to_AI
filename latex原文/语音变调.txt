@@ -6,7 +6,7 @@
 
 \graphicspath{{im/} }
 \title{\textbf{人工智能引论实验报告}}
-\author{田宇轩 2100013126}
+\author{}
 \date{}
 
 \begin{document}
